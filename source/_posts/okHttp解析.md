@@ -50,4 +50,83 @@ String post(String url, String json) throws IOException {
 
 <img src = "http://okskqdic8.bkt.clouddn.com/okhttp_2_1.png" width = 500/>
 ## 类,方法具体分析
-### 
+### OkHttpClient
+要完成一次请求,我们必须先有OkHttpClient实例,使用者的所有操作都是通过它来完成的.OkHttpClient用于协调各个子模块工作,各个子模块直接相互独立.OkHttpClient因为有众多子模块,所以使用建造者设计模式进行装配.获取OkHttpClient实例有两种方式
+
+#### 方式1:
+
+```java
+	OkHttpClient client=new OkHttpClient(); 
+```
+不是说使用的是建造者模式吗?为啥没有Builder?
+因为OkHttpClient的构造函数默认使用了默认的builder()
+
+```java
+	public OkHttpClient() {
+    		this(new Builder());
+ 	}
+
+	........
+
+	public Builder() {
+      		//调度器
+      		dispatcher = new Dispatcher();
+      		//请求协议 http1.1 http2
+      		protocols = DEFAULT_PROTOCOLS;
+      		// 链接规范 普通请求 加密请求(TLS)
+      		connectionSpecs = DEFAULT_CONNECTION_SPECS;
+      		//应用程序的HTTP调用的数量、大小和持续时间
+      		eventListenerFactory =EventListener.factory(EventListener.NONE);
+      		//选择在连接到URL引用的网络资源时要使用的代理服务器(如果有的话)
+      		proxySelector = ProxySelector.getDefault();
+      		//cookie
+      		cookieJar = CookieJar.NO_COOKIES;
+      		//java 套接字工厂
+      		socketFactory = SocketFactory.getDefault();
+      		//用于HTTPS请求时与域名校验
+      		hostnameVerifier = OkHostnameVerifier.INSTANCE;
+      		//https证书校验
+      		certificatePinner = CertificatePinner.DEFAULT;
+      		proxyAuthenticator = Authenticator.NONE;
+      		authenticator = Authenticator.NONE;
+      		//连接池
+      		connectionPool = new ConnectionPool();
+      		dns = Dns.SYSTEM;
+      		followSslRedirects = true;
+      		followRedirects = true;
+      		retryOnConnectionFailure = true;
+      		connectTimeout = 10_000;
+      		readTimeout = 10_000;
+      		writeTimeout = 10_000;
+      		pingInterval = 0;
+    	}
+
+	........	
+
+```
+#### 方式2:
+
+```java
+	OkHttpClient.Builder bulider=new OKHttpClient.Builder(); 
+	//根据builder进行自定义
+	OkHttpClient client=buider.xxx().xxx().build();
+```
+
+
+
+
+注: 因为OkHttpClient内部有连接池,线程池等,所以一般来说一个应用就一个OkHttpClient实例.
+
+### Request
+### RealCall
+### Dispatcher
+### RetryAndFollowUpInterceptor
+### BridgeInterceptor
+### CacheInterceptor
+### ConnectInterceptor
+#### StreamAllocation
+#### RealConnection
+#### HttpCodec
+### CallServerInterceptor
+### RealInterceptorChain
+### Response
