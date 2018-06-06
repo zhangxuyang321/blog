@@ -112,13 +112,12 @@ String post(String url, String json) throws IOException {
 	OkHttpClient client=buider.xxx().xxx().build();
 ```
 
-
-
-
 注: 因为OkHttpClient内部有连接池,线程池等,所以一般来说一个应用就一个OkHttpClient实例.
 
 ### Request
+Request类比较简单 只包含了 url, method, headers, body等一次请求的基本信息
 ### RealCall
+
 ### Dispatcher
 ### RetryAndFollowUpInterceptor
 ### BridgeInterceptor
