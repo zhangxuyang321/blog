@@ -135,6 +135,129 @@ getResponseWithInterceptorChain:
   从以上可以看到,RealCall 通过 execute / enqueue发送同步/异步请求,
 getResponseWithInterceptorChain获取Response.其中异步请求会用Dispatcher来进行分配,虽然同步请求中也使用了Dispatcher但只是记录,稍后会在Dispatcher中详细分析.在getResponseWithInterceptorChain中,将开发者自定义的interceptor可必须的interceptor为每一个call进行添加,然后通过RealInterceptorChain进行逐个调用,具体会在下面分析.
 ### Dispatcher
+Dispatcher保存了一个OkHttpClient里的所有Call,包含同步Call(一个deque保存)和异步Call(两个Deque保存).其中异步Call默认最大支持64请求,单个Host默认最大5个请求.每个dispatcher使用一个{@link ExecutorService}来在内部运行调用。默认使用ExecutorService实现类ThreadPoolExecutor.如图:
+
+<img src="http://okskqdic8.bkt.clouddn.com/okhttp_7_1.png" width = 500/>
+
+同步请求:
+
+在上面RealCall同步请求分析中,需要Dispatch做什么呢?
+
+RealCall
+
+```java
+@Override public Response execute() throws IOException {
+   ......
+    try {
+      client.dispatcher().executed(this);
+	......
+      } finally {
+      client.dispatcher().finished(this);
+  }
+```
+
+Dispatcher
+
+```java
+.......
+synchronized void executed(RealCall call) {
+    runningSyncCalls.add(call);
+  }
+.......
+
+void finished(RealCall call) {
+    finished(runningSyncCalls, call, false);
+  }
+
+private <T> void finished(Deque<T> calls, T call, boolean promoteCalls) {
+    int runningCallsCount;
+    Runnable idleCallback;
+    synchronized (this) {
+      if (!calls.remove(call)) throw new AssertionError("Call wasn't in-flight!");
+      if (promoteCalls) promoteCalls();
+      runningCallsCount = runningCallsCount();
+      idleCallback = this.idleCallback;
+    }
+	......
+  }
+```
+
+可以看到在同步请求中,Dispatcher只是将任务存入了runningSyncCalls集合中.在通过getResponseWithInterceptorChain获取到Response,最终会执行finally语句,将任务移除runningSyncCalls集合.
+
+异步请求:
+
+在RealCall执行异步请求时,最关键的代码是:
+
+```java
+@Override public void enqueue(Callback responseCallback) {
+	......    
+    client.dispatcher().enqueue(new AsyncCall(responseCallback));
+  }
+```
+Dispatcher中enqueue方法
+
+```java
+	synchronized void enqueue(AsyncCall call) {
+    if (runningAsyncCalls.size() < maxRequests && runningCallsForHost(call) < maxRequestsPerHost) {
+      runningAsyncCalls.add(call);
+      executorService().execute(call);
+    } else {
+      readyAsyncCalls.add(call);
+    }
+  }
+```
+
+可以看到如果正在执行的异步请求数小于最大请求数并且单个host异步请求数小于 maxRequestsPerHost(5)时,将AsyncCall直接放入正在执行的异步集合中,并立即执行,否则就将该请求放入readyAsyncCalls集合中.AsyncCall是Runnable的子类（间接），因此，在线程池中最终会调用AsyncCall的execute（）方法执行异步请求.
+
+
+```java
+@Override protected void execute() {
+	......
+       try {
+        Response response = getResponseWithInterceptorChain();
+           } catch (IOException e) {
+		......
+          } finally {
+        client.dispatcher().finished(this);
+       }
+```
+
+异步请求,最终也是通过getResponseWithInterceptorChain来获取响应的Response. 区别在于client.dispatcher().finished(this);因为这是另一个异步任务,所以调用的是另外一个finish方法：
+
+```java
+ void finished(AsyncCall call) {
+    finished(runningAsyncCalls, call, true);
+  }
+
+private <T> void finished(Deque<T> calls, T call, boolean promoteCalls) {
+   ......
+    synchronized (this) {
+    if (!calls.remove(call)) throw new AssertionError("Call wasn't in-flight!");
+      if (promoteCalls) promoteCalls();
+ 	......
+}
+```
+因为promoteCalls为true,所以要执行promoteCalls(); 方法:
+
+```java
+private void promoteCalls() {
+    if (runningAsyncCalls.size() >= maxRequests) return; // 已经运行超过最大请求数,则return
+    if (readyAsyncCalls.isEmpty()) return; //缓存等待的请求为空,则return
+
+    for (Iterator<AsyncCall> i = readyAsyncCalls.iterator(); i.hasNext(); ) {
+      AsyncCall call = i.next();
+
+      if (runningCallsForHost(call) < maxRequestsPerHost) {
+        i.remove();
+        runningAsyncCalls.add(call);
+        executorService().execute(call);
+      }
+
+      if (runningAsyncCalls.size() >= maxRequests) return; // Reached max capacity.
+    }
+  }
+```
+可以看到如果有等待的异步请求,则会在符合最大请求数以及最大单个host请求数的前提下,继续执行.知道所有请求都执行完毕.
 
 ### RealInterceptorChain
 ### RetryAndFollowUpInterceptor
