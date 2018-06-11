@@ -117,8 +117,26 @@ String post(String url, String json) throws IOException {
 ### Request
 Request类比较简单 只包含了 url, method, headers, body等一次请求的基本信息
 ### RealCall
+RealCall 目前是Call的唯一实现类,表示一个请求/响应对(流),用于操作管理请求.如:发送同步/异步请求,取消请求等.每一个call只能执行一次.其中重要方法如下
 
+同步请求:
+
+<img src="http://okskqdic8.bkt.clouddn.com/okhttp_3.jpg" width = 500/>
+
+异步请求:
+
+<img src="http://okskqdic8.bkt.clouddn.com/okhttp_4.jpg" width = 500/>
+<img src = "http://okskqdic8.bkt.clouddn.com/okhttp_5.jpg" width = 500/>
+
+getResponseWithInterceptorChain:
+
+<img src = "http://okskqdic8.bkt.clouddn.com/okhttp_6_1.jpg" width = 500 />
+
+  从以上可以看到,RealCall 通过 execute / enqueue发送同步/异步请求,
+getResponseWithInterceptorChain获取Response.其中异步请求会用Dispatcher来进行分配,虽然同步请求中也使用了Dispatcher但只是记录,稍后会在Dispatcher中详细分析.在getResponseWithInterceptorChain中,将开发者自定义的interceptor可必须的interceptor为每一个call进行添加,然后通过RealInterceptorChain进行逐个调用,具体会在下面分析.
 ### Dispatcher
+
+### RealInterceptorChain
 ### RetryAndFollowUpInterceptor
 ### BridgeInterceptor
 ### CacheInterceptor
@@ -127,5 +145,4 @@ Request类比较简单 只包含了 url, method, headers, body等一次请求的
 #### RealConnection
 #### HttpCodec
 ### CallServerInterceptor
-### RealInterceptorChain
 ### Response
