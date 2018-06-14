@@ -252,17 +252,159 @@ private void promoteCalls() {
         runningAsyncCalls.add(call);
         executorService().execute(call);
       }
-
       if (runningAsyncCalls.size() >= maxRequests) return; // Reached max capacity.
     }
   }
 ```
-可以看到如果有等待的异步请求,则会在符合最大请求数以及最大单个host请求数的前提下,继续执行.知道所有请求都执行完毕.
+可以看到如果有等待的异步请求,则会在符合最大请求数以及最大单个host请求数的前提下,继续执行.直到所有请求都执行完毕.
 
 ### RealInterceptorChain
+在介绍各个拦截器之前,需要先分析RealInterceptorChain,直译就是拦截器链.为什么要先分析这个类呢?因为各个Interceptor就是通过RealInterceptorChain这个类按照顺序调用的!,先看这个类是在哪里调用的,在上面分析RealCall中获取Response的getResponseWithInterceptorChain方法中:
+
+<img src="http://okskqdic8.bkt.clouddn.com/okhttp_8.jpg" width = 500/>
+
+可以看到我们添加的所有interceptors都传给了RealInterceptorChain类中,并通过RealInterceptorChain的proceed方法获取Response.我们在来看proceed方法:
+
+```java
+@Override public Response proceed(Request request) throws IOException {
+    return proceed(request, streamAllocation, httpCodec, connection);
+  }
+
+public Response proceed(Request request, StreamAllocation streamAllocation, HttpCodec httpCodec,
+      RealConnection connection) throws IOException {
+	......   
+	// Call the next interceptor in the chain.
+	RealInterceptorChain next = new RealInterceptorChain(interceptors, streamAllocation, httpCodec,
+        connection, index + 1, request, call, eventListener, connectTimeout, readTimeout,
+        writeTimeout);
+	Interceptor interceptor = interceptors.get(index);
+	Response response = interceptor.intercept(next);
+	......
+	return response;
+}
+```
+这个方法最重要的就是又重新创建了一个RealInterceptorChain(此时index+1),并且通过interceptors.get(index);获取拦截器后执行拦截器intercept方法.在后续分析中可以看到intercept(Chain chain)方法会继续调用责任链的proceed()方法.这样依次调用,<font color=#ff0000 >当前拦截器的Response依赖于下一个拦截器的Intercept的Response。</font>当执行到最后一个拦截器获取到Response后沿着调用相反的方向依次将Response返回,有点类似递归.
+
 ### RetryAndFollowUpInterceptor
+根据类名我就可以知道此拦截器用于失败重试,并根据需要进行重定向,并且如果调用被取消它可能会抛出IOException("Canceled")。
+具体方法如下:
+
+```java
+@Override public Response intercept(Chain chain) throws IOException {
+    Request request = chain.request(); //获取请求信息
+    RealInterceptorChain realChain = (RealInterceptorChain) chain;
+    Call call = realChain.call();  //获取RealCall
+    EventListener eventListener = realChain.eventListener(); //监听器
+
+    //用于协调链接,流,请求三者之间的关系后边会详细分析
+    StreamAllocation streamAllocation = new StreamAllocation(client.connectionPool(),
+        createAddress(request.url()), call, eventListener, callStackTrace);
+    this.streamAllocation = streamAllocation;
+
+    int followUpCount = 0; //
+    Response priorResponse = null;
+    while (true) {
+      if (canceled) { //如果请求取消则抛出取消异常
+        streamAllocation.release();
+        throw new IOException("Canceled");
+      }
+
+      Response response;
+      boolean releaseConnection = true;
+      try {
+        //调用下一个拦截器
+        response = realChain.proceed(request, streamAllocation, null, null);
+        releaseConnection = false;
+      } catch (RouteException e) {
+        // 试图通过路由连接失败。请求将不会被发送。
+        if (!recover(e.getLastConnectException(), streamAllocation, false, request)) {
+          throw e.getLastConnectException();
+        }
+        releaseConnection = false;
+        continue; //重试
+      } catch (IOException e) {
+        // 试图与服务器通信失败。请求可能已经发出。
+        boolean requestSendStarted = !(e instanceof ConnectionShutdownException);
+        if (!recover(e, streamAllocation, requestSendStarted, request)) throw e;
+        releaseConnection = false;
+        continue; //继续重试
+      } finally {
+        // We're throwing an unchecked exception. Release any resources.
+        if (releaseConnection) {
+          streamAllocation.streamFailed(null);
+          streamAllocation.release();
+        }
+      }
+
+      // 如果前一个生成的Response 不为空,则将前一次的response添加到本次的response中
+      if (priorResponse != null) {
+        response = response.newBuilder()
+            .priorResponse(priorResponse.newBuilder()
+                    .body(null)
+                    .build())
+            .build();
+      }
+
+      Request followUp;
+      try {
+        //followUpRequest会根据返回的response的code来决定是否进行重试,例如:返回code为200,或者请求超时等则返回null
+        //否则会根据code进行调整请求进行重试
+        followUp = followUpRequest(response, streamAllocation.route());
+      } catch (IOException e) {
+        streamAllocation.release();
+        throw e;
+      }
+
+      //followUp为null,返回当前的Response,如果不是长连接则释放资源
+      if (followUp == null) {
+        if (!forWebSocket) {
+          streamAllocation.release();
+        }
+        return response;
+      }
+
+      //释放ResponseBody所关联的资源
+      closeQuietly(response.body());
+
+      //超过最大重试次数
+      if (++followUpCount > MAX_FOLLOW_UPS) {
+        streamAllocation.release();
+        throw new ProtocolException("Too many follow-up requests: " + followUpCount);
+      }
+
+      //不是很清楚,看followUpRequest方法好像在超时的时候会有这个情况
+      if (followUp.body() instanceof UnrepeatableRequestBody) {
+        streamAllocation.release();
+        throw new HttpRetryException("Cannot retry streamed HTTP body", response.code());
+      }
+
+      //如果请求可以重用此链接sameConnection方法返回true,如果不能重用就获取一个新链接
+      if (!sameConnection(response, followUp.url())) {
+        streamAllocation.release();
+        streamAllocation = new StreamAllocation(client.connectionPool(),
+            createAddress(followUp.url()), call, eventListener, callStackTrace);
+        this.streamAllocation = streamAllocation;
+      } else if (streamAllocation.codec() != null) {
+        //如果是可以重此链接,但是HttpCodec(编码HTTP请求并解码HTTP响应)并没有重置则抛出异常
+        throw new IllegalStateException("Closing the body of " + response
+            + " didn't close its backing stream. Bad interceptor?");
+      }
+
+      request = followUp;
+      priorResponse = response;
+    }
+  }
+```
+
 ### BridgeInterceptor
+从应用程序代码到网络代码的桥梁。首先，它从用户请求构建网络请求。然后它继续调用网络。最后，它从网络响应构建用户响应。其实就是对Request和Response的Header进行操作,主要是为Request添加请求头,为Response添加响应头如图:
+
+<img src = "http://okskqdic8.bkt.clouddn.com/okhttp_9.png"/>
+
+功能很简单,就不贴源码了
+
 ### CacheInterceptor
+
 ### ConnectInterceptor
 #### StreamAllocation
 #### RealConnection
