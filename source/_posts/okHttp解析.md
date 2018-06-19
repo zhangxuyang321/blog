@@ -404,7 +404,244 @@ public Response proceed(Request request, StreamAllocation streamAllocation, Http
 功能很简单,就不贴源码了
 
 ### CacheInterceptor
+cache 缓存,CacheInterceptor就是用来处理缓存的拦截器.简单来说一次请求中,如果有缓存的Response则直接返回,如果没有,就在拦截器链返回Response后缓存起来.
+在解析CacheInterceptor之前,我们要了解HTTP缓存机制([HTTP缓存机制-客户端缓存](http://blog.csdn.net/y874961524/article/details/61419716)).HTTP缓存机制图片:
 
+<img src="http://okskqdic8.bkt.clouddn.com/okhttp_10.jpg" width = 500/>
+
+缓存响应头:
+
+<img src = "http://okskqdic8.bkt.clouddn.com/okhttp_11.jpg" width = 300/>
+
+Cache-control：在响应http请求时告诉浏览器在过期时间前浏览器可以直接从浏览器缓存取数据，而无需再次请求。 HTTP-Header中的Cache-Control字段:可以是public、private、no-cache、no- store、no-transform、must-revalidate、proxy-revalidate、max-age
+
+各个消息中的指令含义如下：
+
+* public指示响应可被任何缓存区缓存。
+* private指示对于单个用户的整个或部分响应消息,不能为共享缓存处理.这允许服务器仅仅描述当前用户的部分消息,次响应消息对其他用户的请求无效
+* no-cache指示请求或响应消息不能缓存
+* no-store用于防止重要的信息被无意发布.在请求消息中发送将使得请求和响应消息都不使用缓存.
+* max-age指示可以客户机接收生存期不大于指定时间(以秒为单位)的响应
+* min-fresh指示客户机可以接收响应时间小于当前时间加上指定时间的响应.
+* max-stale指示客户机可以接收超出超时期间的响应消息.如果指定max-stale消息的值,那么客户机可以接收超出超时期指定的值之内的响应消息
+
+Date: 服务器告诉客户端，该资源的发送时间
+
+Expires: 表示过期时间(该字段是1.0的东西，当cache-control和该字段同时存在的条件下，cache-control的优先级更高);
+
+Last-Modified:服务器告诉客户端，资源的最后修改时间；
+
+E-Tag:这个图没给出,意思是,当前资源在服务器的唯一标识，可用于判断资源的内容是否被修改了.
+
+除以上响应头字段以外，还需了解两个相关的Request请求头：If-Modified-since、If-none-Match。这两个字段是和Last-Modified、E-Tag配合使用的。大致流程如下：
+
+服务器在请求时,会在200 OK中返回该资源的Last-Modified和ETag头(服务器支持缓存的情况下才有),客户端将该资源保存在Catch中,并记录这两个属性.当客户端发送相同请求时,根据Date+Cache-control来判断是否缓存过期，如果过期,会在请求中携带If-Modified-Since和If-None-Match两个头。两个头的值分别是响应中Last-Modified和ETag头的值。服务器通过这两个头判断本地资源未发生变化，客户端不需要重新下载，返回304响应。
+
+与ConnectInterceptor相关的几个类:
+
+<img src="http://okskqdic8.bkt.clouddn.com/okhttp_12_1.png" width = 500/>
+CacheStrategy:是一个缓存策略类，给定一个请求和缓存的响应，该数据将决定是否使用网络、缓存，或者两者都使用。
+
+Cache是封装了实际的缓存操作；基于DiskLruCache
+
+代码如下:
+
+```java
+@Override public Response intercept(Chain chain) throws IOException {
+    Response cacheCandidate = cache != null
+        ? cache.get(chain.request()) //以request的url而来key,获取缓存
+        : null;
+
+    long now = System.currentTimeMillis();
+    //缓存策略类，该类决定了是使用缓存还是进行网络请求
+    CacheStrategy strategy = new CacheStrategy.Factory(now, chain.request(), cacheCandidate).get();
+    //如果为null就代表不用进行网络请求
+    Request networkRequest = strategy.networkRequest;
+    //如果为null，则代表不使用缓存
+    Response cacheResponse = strategy.cacheResponse;
+
+    //根据缓存策略，更新统计指标：请求次数、使用网络请求次数、使用缓存次数
+    if (cache != null) {
+      cache.trackResponse(strategy);
+    }
+    //缓存不适用。关闭它。
+    if (cacheCandidate != null && cacheResponse == null) {
+      closeQuietly(cacheCandidate.body());
+    }
+
+    // 如果我们被禁止使用网络而又没有缓存，那么就失败。返回504c错误
+    if (networkRequest == null && cacheResponse == null) {
+      return new Response.Builder()
+          .request(chain.request())
+          .protocol(Protocol.HTTP_1_1)
+          .code(504)
+          .message("Unsatisfiable Request (only-if-cached)")
+          .body(Util.EMPTY_RESPONSE)
+          .sentRequestAtMillis(-1L)
+          .receivedResponseAtMillis(System.currentTimeMillis())
+          .build();
+    }
+
+    //缓存可用,直接返回缓存,请求结束
+    if (networkRequest == null) {
+      return cacheResponse.newBuilder()
+          .cacheResponse(stripBody(cacheResponse))
+          .build();
+    }
+
+    Response networkResponse = null;
+    try {
+      //继续链式调用,去请求网络
+      networkResponse = chain.proceed(networkRequest);
+    } finally {
+      // If we're crashing on I/O or otherwise, don't leak the cache body.
+      if (networkResponse == null && cacheCandidate != null) {
+        closeQuietly(cacheCandidate.body());
+      }
+    }
+
+    //HTTP_NOT_MODIFIED缓存有效，合并网络请求和缓存
+    if (cacheResponse != null) {
+      if (networkResponse.code() == HTTP_NOT_MODIFIED) {
+        Response response = cacheResponse.newBuilder()
+            .headers(combine(cacheResponse.headers(), networkResponse.headers()))
+            .sentRequestAtMillis(networkResponse.sentRequestAtMillis())
+            .receivedResponseAtMillis(networkResponse.receivedResponseAtMillis())
+            .cacheResponse(stripBody(cacheResponse))
+            .networkResponse(stripBody(networkResponse))
+            .build();
+        networkResponse.body().close();
+
+        // 在合并头部之后更新缓存，但是在剥离内容编码头部之前(由initContentStream()执行)。
+        cache.trackConditionalCacheHit();
+        cache.update(cacheResponse, response); //具体更新缓存
+        return response;
+      } else {
+        closeQuietly(cacheResponse.body());
+      }
+    }
+
+    Response response = networkResponse.newBuilder()
+        .cacheResponse(stripBody(cacheResponse))
+        .networkResponse(stripBody(networkResponse))
+        .build();
+
+    //将新的response写入缓存
+    if (cache != null) {
+      if (HttpHeaders.hasBody(response) && CacheStrategy.isCacheable(response, networkRequest)) {
+        // Offer this request to the cache.
+        CacheRequest cacheRequest = cache.put(response);
+        return cacheWritingResponse(cacheRequest, response);
+      }
+
+      if (HttpMethod.invalidatesCache(networkRequest.method())) {
+        try {
+          cache.remove(networkRequest);
+        } catch (IOException ignored) {
+          // The cache cannot be written.
+        }
+      }
+    }
+
+    return response;
+  }
+```
+#### CacheStrategy
+CacheStrategy在CacheInterceptor中起到了很关键的作用。该类决定了是网络请求还是使用缓存。该类最关键的代码是getCandidate（）方法：
+
+```java
+private CacheStrategy getCandidate() {
+      // 没有缓存使用,网络请求
+      if (cacheResponse == null) {
+        return new CacheStrategy(request, null);
+      }
+
+      // 如果是HTTPS请求,并且缓存并没有握手,则网络请求
+      if (request.isHttps() && cacheResponse.handshake() == null) {
+        return new CacheStrategy(request, null);
+      }
+
+      //如果这个响应不应该被存储，它不应该被用作响应源。只要持久性存储表现良好且规则不变，此检查就应该是冗余的。
+      //不可缓存,直接网络请求
+      if (!isCacheable(cacheResponse, request)) {
+        return new CacheStrategy(request, null);
+      }
+
+      CacheControl requestCaching = request.cacheControl();
+      //如果请求头包含no-cache或者包含If-Modified-Since或If-None-Match则网络请求
+      //请求头包含If-Modified-Since或者If-None-Match意味着本地缓存过期，需要服务器验证
+      if (requestCaching.noCache() || hasConditions(request)) {
+        return new CacheStrategy(request, null);
+      }
+
+      CacheControl responseCaching = cacheResponse.cacheControl();
+      if (responseCaching.immutable()) {//强制使用缓存
+        return new CacheStrategy(null, cacheResponse);
+      }
+
+      long ageMillis = cacheResponseAge();
+      long freshMillis = computeFreshnessLifetime();
+
+      if (requestCaching.maxAgeSeconds() != -1) {
+        freshMillis = Math.min(freshMillis, SECONDS.toMillis(requestCaching.maxAgeSeconds()));
+      }
+
+      long minFreshMillis = 0;
+      if (requestCaching.minFreshSeconds() != -1) {
+        minFreshMillis = SECONDS.toMillis(requestCaching.minFreshSeconds());
+      }
+
+      long maxStaleMillis = 0;
+      if (!responseCaching.mustRevalidate() && requestCaching.maxStaleSeconds() != -1) {
+        maxStaleMillis = SECONDS.toMillis(requestCaching.maxStaleSeconds());
+      }
+
+      //可缓存，并且ageMillis + minFreshMillis < freshMillis + maxStaleMillis
+      // （意味着虽过期，但可用，只是会在响应头添加warning）
+      if (!responseCaching.noCache() && ageMillis + minFreshMillis < freshMillis + maxStaleMillis) {
+        Response.Builder builder = cacheResponse.newBuilder();
+        if (ageMillis + minFreshMillis >= freshMillis) {
+          builder.addHeader("Warning", "110 HttpURLConnection \"Response is stale\"");
+        }
+        long oneDayMillis = 24 * 60 * 60 * 1000L;
+        if (ageMillis > oneDayMillis && isFreshnessLifetimeHeuristic()) {
+          builder.addHeader("Warning", "113 HttpURLConnection \"Heuristic expiration\"");
+        }
+        return new CacheStrategy(null, builder.build());
+      }
+
+      //流程走到这，说明缓存已经过期了  
+      //添加请求头：If-Modified-Since或者If-None-Match  
+      //etag与If-None-Match配合使用  
+      //lastModified与If-Modified-Since配合使用  
+      //前者和后者的值是相同的  
+      //区别在于前者是响应头，后者是请求头。  
+      //后者用于服务器进行资源比对，看看是资源是否改变了。  
+      // 如果没有，则本地的资源虽过期还是可以用的 
+      String conditionName;
+      String conditionValue;
+      if (etag != null) {
+        conditionName = "If-None-Match";
+        conditionValue = etag;
+      } else if (lastModified != null) {
+        conditionName = "If-Modified-Since";
+        conditionValue = lastModifiedString;
+      } else if (servedDate != null) {
+        conditionName = "If-Modified-Since";
+        conditionValue = servedDateString;
+      } else {
+        return new CacheStrategy(request, null); // No condition! Make a regular request.
+      }
+
+      Headers.Builder conditionalRequestHeaders = request.headers().newBuilder();
+      Internal.instance.addLenient(conditionalRequestHeaders, conditionName, conditionValue);
+
+      Request conditionalRequest = request.newBuilder()
+          .headers(conditionalRequestHeaders.build())
+          .build();
+      return new CacheStrategy(conditionalRequest, cacheResponse);
+    }
+```
 ### ConnectInterceptor
 #### StreamAllocation
 #### RealConnection
