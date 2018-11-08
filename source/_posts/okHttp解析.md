@@ -10,8 +10,6 @@ OkHttp 现在作为Android时下最流行的网络框架(Retrofit 也是以OkHtt
 
 感谢: [json_it的博客](https://blog.csdn.net/json_it/article/details/78404010)  [码迷](http://www.mamicode.com/info-detail-2161332.html)
 
-<img src = "http://okskqdic8.bkt.clouddn.com/okhttp_1.jpg" width = 500/>
-
 ## okhttp网络请求流程
 以官网demo为例进行分析
 
@@ -864,6 +862,9 @@ private RealConnection findConnection(int connectTimeout, int readTimeout, int w
 			
 #### ConnectionPool
 在Connectinterceptor中,ConnectionPool起到关键作用.目前默认保存5个空闲链接,在5分钟不活动后将其清除。
+
+<img src = "http://okskqdic8.bkt.clouddn.com/okhttp_14.png" width =500/>
+
 
 线程池：用于支持连接池的cleanup任务，清除idle线程；
 
