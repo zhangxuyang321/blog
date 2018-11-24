@@ -8,9 +8,16 @@ categories: 源码解析
 ## 概述
 Activity作为Android的四大组件之一,使用最为频繁.得益于最近比较清闲,特地看了一遍Activity的启动流程.现在总结于此.Activity的启动流程源码真是一大片又一大片.在次特地感谢[YoungerHu的博客](https://www.jianshu.com/p/459d38ade254).本篇记录是从startActivity方法进行记录的
 
+
+
+<!-- more -->
+
+
+
 ## Activity整体时序图如下
 
 ##具体方法调用整理
+
 ### 1. startActivity
 	startActivity()是Activity中的方法,还有另一个重载的方法.因为简单就不贴源码了.startActivity最后调用的都是startActivityForResult方法.
 > 我们以最简单的 startActivity(new Intent(xxActivity.calss)) 为例,不涉及参数传递,只看最直接的启动过程

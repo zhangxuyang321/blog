@@ -9,7 +9,7 @@ categories: Android自定义控件
 ## UI
 [Download Demo](https://github.com/zhangxuyang321/XyzInfo/blob/master/apk/demo.apk)
 
-<img src="http://okskqdic8.bkt.clouddn.com/2.gif" width="50%" height="50%" />
+<img src="http://zhangxy-blog.oss-cn-beijing.aliyuncs.com/2.gif" width="50%" height="50%" />
 
 <!-- more -->
 
@@ -40,7 +40,7 @@ xSwitch | xRuler
      compile 'com.xyz.xswitch:xswitch:1.0.1'
 ```
 ### 属性介绍
-    
+
 属性 | 介绍 | 类型 | 默认 | 是否必须
 --- | --- | --- | --- | ---
 xRadian | 圆角弧度 | dimension | 45 |否
@@ -74,7 +74,7 @@ xRightIcon | 右侧图片 | reference | null |是
 ```
 
 ### 代码
-      
+
 ```java
      XyzSwitch xSwitch =  (XyzSwitch) findViewById(R.id.xswitch);
      xSwitch.setOnXyzSwitchChangeListener(new XyzSwitch.XyzSwitchChange() {

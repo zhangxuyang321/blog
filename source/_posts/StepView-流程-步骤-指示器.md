@@ -14,7 +14,7 @@ StepView是由自己公司开发的软件中抽取出来又做了强化,分为�
 
 [Download Demo](https://github.com/zhangxuyang321/StepView/blob/master/apk/step.apk)
 
-<img src="http://okskqdic8.bkt.clouddn.com/step.png" width="100%" height="100%" />
+<img src="http://zhangxy-blog.oss-cn-beijing.aliyuncs.com/step.png" width="100%" height="100%" />
 
 <!-- more -->
 
@@ -56,8 +56,8 @@ compile 'com.xyz.step:step:1.0.4'
     h_max_step | 总步骤(○)的个数 | int | 5 | 否
     h_pro_step | 已完成步骤 | int | 1 | 否
     h_textsize | 字体大小 | dimension | 10 | 否
-    
-    
+
+
 #### layout
 
 ```xml
@@ -117,7 +117,7 @@ compile 'com.xyz.step:step:1.0.4'
     v_textsize | 字体大小 | dimension | 10 | 否
     v_textMoveTop | 指示器右侧文字位置上下移动的距离 | dimension | 5 | 否
     v_timeMoveTop | 指示器左侧文字位置上下移动的距离 | dimension | 4 | 否
-    
+
 #### layout
 
 ```xml
