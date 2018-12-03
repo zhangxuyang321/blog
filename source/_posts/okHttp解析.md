@@ -46,7 +46,8 @@ String post(String url, String json) throws IOException {
 ```
 ### 调用流程图如下
 
-<img src = "http://okskqdic8.bkt.clouddn.com/okhttp_2_1.png" width = 500/>
+<img src ="http://zhangxy-blog.oss-cn-beijing.aliyuncs.com/okhttp_2_1.png" width = 500/>
+
 ## 类,方法具体分析
 ### OkHttpClient
 要完成一次请求,我们必须先有OkHttpClient实例,使用者的所有操作都是通过它来完成的.OkHttpClient用于协调各个子模块工作,各个子模块直接相互独立.OkHttpClient因为有众多子模块,所以使用建造者设计模式进行装配.获取OkHttpClient实例有两种方式
@@ -119,23 +120,23 @@ RealCall 目前是Call的唯一实现类,表示一个请求/响应对(流),用�
 
 同步请求:
 
-<img src="http://okskqdic8.bkt.clouddn.com/okhttp_3.jpg" width = 500/>
+<img src="http://zhangxy-blog.oss-cn-beijing.aliyuncs.com/okhttp_3.jpg" width = 500/>
 
 异步请求:
 
-<img src="http://okskqdic8.bkt.clouddn.com/okhttp_4.jpg" width = 500/>
-<img src = "http://okskqdic8.bkt.clouddn.com/okhttp_5.jpg" width = 500/>
+<img src="http://zhangxy-blog.oss-cn-beijing.aliyuncs.com/okhttp_4.jpg" width = 500/>
+<img src ="http://zhangxy-blog.oss-cn-beijing.aliyuncs.com/okhttp_5.jpg" width = 500/>
 
 getResponseWithInterceptorChain:
 
-<img src = "http://okskqdic8.bkt.clouddn.com/okhttp_6_1.jpg" width = 500 />
+<img src ="http://zhangxy-blog.oss-cn-beijing.aliyuncs.com/okhttp_6_1.jpg" width = 500 />
 
   从以上可以看到,RealCall 通过 execute / enqueue发送同步/异步请求,
 getResponseWithInterceptorChain获取Response.其中异步请求会用Dispatcher来进行分配,虽然同步请求中也使用了Dispatcher但只是记录,稍后会在Dispatcher中详细分析.在getResponseWithInterceptorChain中,将开发者自定义的interceptor可必须的interceptor为每一个call进行添加,然后通过RealInterceptorChain进行逐个调用,具体会在下面分析.
 ### Dispatcher
 Dispatcher保存了一个OkHttpClient里的所有Call,包含同步Call(一个deque保存)和异步Call(两个Deque保存).其中异步Call默认最大支持64请求,单个Host默认最大5个请求.每个dispatcher使用一个{@link ExecutorService}来在内部运行调用。默认使用ExecutorService实现类ThreadPoolExecutor.如图:
 
-<img src="http://okskqdic8.bkt.clouddn.com/okhttp_7_1.png" width = 500/>
+<img src="http://zhangxy-blog.oss-cn-beijing.aliyuncs.com/okhttp_7_1.png" width = 500/>
 
 同步请求:
 
@@ -259,7 +260,7 @@ private void promoteCalls() {
 ### RealInterceptorChain
 在介绍各个拦截器之前,需要先分析RealInterceptorChain,直译就是拦截器链.为什么要先分析这个类呢?因为各个Interceptor就是通过RealInterceptorChain这个类按照顺序调用的!,先看这个类是在哪里调用的,在上面分析RealCall中获取Response的getResponseWithInterceptorChain方法中:
 
-<img src="http://okskqdic8.bkt.clouddn.com/okhttp_8.jpg" width = 500/>
+<img src="http://zhangxy-blog.oss-cn-beijing.aliyuncs.com/okhttp_8.jpg" width = 500/>
 
 可以看到我们添加的所有interceptors都传给了RealInterceptorChain类中,并通过RealInterceptorChain的proceed方法获取Response.我们在来看proceed方法:
 
@@ -397,7 +398,7 @@ public Response proceed(Request request, StreamAllocation streamAllocation, Http
 ### BridgeInterceptor
 从应用程序代码到网络代码的桥梁。首先，它从用户请求构建网络请求。然后它继续调用网络。最后，它从网络响应构建用户响应。其实就是对Request和Response的Header进行操作,主要是为Request添加请求头,为Response添加响应头如图:
 
-<img src = "http://okskqdic8.bkt.clouddn.com/okhttp_9.png"/>
+<img src ="http://zhangxy-blog.oss-cn-beijing.aliyuncs.com/okhttp_9.png"/>
 
 功能很简单,就不贴源码了
 
@@ -405,11 +406,11 @@ public Response proceed(Request request, StreamAllocation streamAllocation, Http
 cache 缓存,CacheInterceptor就是用来处理缓存的拦截器.简单来说一次请求中,如果有缓存的Response则直接返回,如果没有,就在拦截器链返回Response后缓存起来.
 在解析CacheInterceptor之前,我们要了解HTTP缓存机制([HTTP缓存机制-客户端缓存](http://blog.csdn.net/y874961524/article/details/61419716)).HTTP缓存机制图片:
 
-<img src="http://okskqdic8.bkt.clouddn.com/okhttp_10.jpg" width = 500/>
+<img src="http://zhangxy-blog.oss-cn-beijing.aliyuncs.com/okhttp_10.jpg" width = 500/>
 
 缓存响应头:
 
-<img src = "http://okskqdic8.bkt.clouddn.com/okhttp_11.jpg" width = 300/>
+<img src = "http://zhangxy-blog.oss-cn-beijing.aliyuncs.com/okhttp_11.jpg" width = 300/>
 
 Cache-control：在响应http请求时告诉浏览器在过期时间前浏览器可以直接从浏览器缓存取数据，而无需再次请求。 HTTP-Header中的Cache-Control字段:可以是public、private、no-cache、no- store、no-transform、must-revalidate、proxy-revalidate、max-age
 
@@ -437,7 +438,7 @@ E-Tag:这个图没给出,意思是,当前资源在服务器的唯一标识，可
 
 与ConnectInterceptor相关的几个类:
 
-<img src="http://okskqdic8.bkt.clouddn.com/okhttp_12_1.png" width = 500/>
+<img src="http://zhangxy-blog.oss-cn-beijing.aliyuncs.com/okhttp_12_1.png" width = 500/>
 CacheStrategy:是一个缓存策略类，给定一个请求和缓存的响应，该数据将决定是否使用网络、缓存，或者两者都使用。
 
 Cache是封装了实际的缓存操作；基于DiskLruCache
@@ -643,7 +644,7 @@ private CacheStrategy getCandidate() {
 ### ConnectInterceptor
 ConnectInterceptor是一个关于获取连接的拦截器.用于打开到目标服务器的连接并继续到下一个拦截器。ConnectInterceptor的intercept方法代码很简单,实际上大部分功能都被封装到其他类中.其中重要的几个类如下:
 
-<img src = "http://okskqdic8.bkt.clouddn.com/okhttp_13.png" width =500/>
+<img src = "http://zhangxy-blog.oss-cn-beijing.aliyuncs.com/okhttp_13.png" width =500/>
 StreamAllocation:直译是流分配,用于协调链接,流,请求三者之间的关系.
 
 RouteSelector:选择连接到源服务器的路由。每个连接都需要选择代理服务器、IP地址和TLS模式。连接也可以回收。
@@ -859,11 +860,11 @@ private RealConnection findConnection(int connectTimeout, int readTimeout, int w
         return result;
     }
 ```
-			
+
 #### ConnectionPool
 在Connectinterceptor中,ConnectionPool起到关键作用.目前默认保存5个空闲链接,在5分钟不活动后将其清除。
 
-<img src = "http://okskqdic8.bkt.clouddn.com/okhttp_14.png" width =500/>
+<img src = "http://zhangxy-blog.oss-cn-beijing.aliyuncs.com/okhttp_14.png" width =500/>
 
 
 线程池：用于支持连接池的cleanup任务，清除idle线程；
